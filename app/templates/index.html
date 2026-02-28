@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CardioScan AI — ECG Heartbeat Classification</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary:     #1a1d24;
+            --bg-secondary:   #20232c;
+            --bg-card:        #252830;
+            --bg-hover:       #2c3040;
+            --border-dim:     #2e3240;
+            --border-subtle:  #363b4d;
+            --border-medium:  #424860;
+            --text-primary:   #f0f2f5;
+            --text-secondary: #9aa3b8;
+            --text-dim:       #606880;
+            --green:          #22c55e;
+            --green-dim:      #166534;
+            --green-glow:     rgba(34,197,94,0.12);
+            --red:            #ef4444;
+            --red-dim:        #991b1b;
+            --red-glow:       rgba(239,68,68,0.12);
+            --amber:          #f59e0b;
+            --blue:           #3b82f6;
+            --mono:           'IBM Plex Mono', monospace;
+            --sans:           'IBM Plex Sans', sans-serif;
+        }
+
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: var(--sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+
+        /* ─── Subtle scanline texture ─────────────────── */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(255,255,255,0.018) 2px,
+                rgba(255,255,255,0.018) 4px
+            );
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ─── Animated ECG background ─────────────────── */
+        .bg-ecg {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            height: 120px;
+            opacity: 0.04;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+        .bg-ecg svg { width: 200%; height: 100%; animation: slide-ecg 8s linear infinite; }
+        @keyframes slide-ecg {
+            from { transform: translateX(0); }
+            to   { transform: translateX(-50%); }
+        }
+
+        /* ─── Layout ──────────────────────────────────── */
+        .shell {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            min-height: 100vh;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ─── Sidebar ─────────────────────────────────── */
+        .sidebar {
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-dim);
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+
+        .sidebar-brand {
+            padding: 1.75rem 1.5rem 1.5rem;
+            border-bottom: 1px solid var(--border-dim);
+        }
+
+        .brand-pulse {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .pulse-icon {
+            width: 34px; height: 34px;
+            background: var(--red);
+            display: flex; align-items: center; justify-content: center;
+            position: relative;
+            flex-shrink: 0;
+        }
+        .pulse-icon::after {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border: 1px solid var(--red);
+            opacity: 0.4;
+            animation: pulse-ring 2s ease-in-out infinite;
+        }
+        @keyframes pulse-ring {
+            0%, 100% { transform: scale(1); opacity: 0.4; }
+            50%       { transform: scale(1.2); opacity: 0; }
+        }
+
+        .pulse-icon svg { width: 18px; height: 18px; stroke: white; fill: none; stroke-width: 2; }
+
+        .brand-name { font-size: 1rem; font-weight: 700; letter-spacing: -0.02em; }
+        .brand-name span { color: var(--red); }
+
+        .brand-tag {
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+        }
+
+        .sidebar-nav { padding: 1.25rem 0.75rem; flex: 1; }
+
+        .nav-group-label {
+            font-family: var(--mono);
+            font-size: 0.5625rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--text-dim);
+            padding: 0 0.75rem;
+            margin-bottom: 0.5rem;
+            margin-top: 1rem;
+        }
+        .nav-group-label:first-child { margin-top: 0; }
+
+        .nav-item {
+            display: flex; align-items: center; gap: 0.625rem;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-weight: 500;
+            text-decoration: none;
+        }
+        .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .nav-item.active { background: var(--red); color: white; }
+        .nav-item svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+        .sidebar-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border-dim);
+        }
+
+        .system-status {
+            display: flex; align-items: center; gap: 0.5rem;
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            color: var(--text-dim);
+        }
+        .status-dot {
+            width: 5px; height: 5px; border-radius: 50%;
+            background: var(--green);
+            animation: blink 2s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* ─── Main ────────────────────────────────────── */
+        .main { display: flex; flex-direction: column; min-height: 100vh; }
+
+        .topbar {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-dim);
+            padding: 0.875rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .breadcrumb {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            display: flex; align-items: center; gap: 0.5rem;
+        }
+        .breadcrumb .sep { color: var(--border-medium); }
+        .breadcrumb .current { color: var(--text-secondary); }
+
+        .topbar-chips { display: flex; gap: 0.5rem; }
+
+        .chip {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            padding: 0.3rem 0.625rem;
+            border: 1px solid var(--border-subtle);
+            color: var(--text-secondary);
+            background: var(--bg-card);
+            display: flex; align-items: center; gap: 0.375rem;
+        }
+        .chip-dot { width: 5px; height: 5px; border-radius: 50%; }
+
+        /* ─── Content ─────────────────────────────────── */
+        .content { flex: 1; padding: 2rem; background: var(--bg-primary); }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 1.5rem;
+            max-width: 1380px;
+        }
+
+        /* ─── Cards ───────────────────────────────────── */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-dim);
+        }
+        .card-header {
+            padding: 1.125rem 1.5rem;
+            border-bottom: 1px solid var(--border-dim);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .card-title {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--text-secondary);
+        }
+        .card-badge {
+            font-family: var(--mono);
+            font-size: 0.5625rem;
+            padding: 0.2rem 0.5rem;
+            border: 1px solid var(--border-subtle);
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        .card-body { padding: 1.5rem; }
+
+        /* ─── Upload zone ─────────────────────────────── */
+        .upload-zone {
+            border: 1px dashed var(--border-medium);
+            background: var(--bg-secondary);
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .upload-zone:hover, .upload-zone.drag-over {
+            border-color: var(--red);
+            border-style: solid;
+            background: rgba(239,68,68,0.04);
+        }
+
+        .upload-zone-icon {
+            width: 52px; height: 52px;
+            margin: 0 auto 1.25rem;
+            border: 1px solid var(--border-medium);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .upload-zone-icon svg { width: 22px; height: 22px; stroke: var(--text-dim); }
+
+        .upload-zone-title {
+            font-size: 0.9375rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .upload-zone-sub {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-bottom: 1.5rem;
+            line-height: 1.6;
+        }
+        .upload-zone-formats {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            color: var(--text-dim);
+            margin-top: 1rem;
+        }
+
+        /* ─── Buttons ─────────────────────────────────── */
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+            padding: 0.625rem 1.5rem;
+            font-family: var(--mono);
+            font-size: 0.8125rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s;
+            text-transform: uppercase;
+        }
+        .btn-primary { background: var(--red); color: white; }
+        .btn-primary:hover { background: #dc2626; }
+        .btn-ghost {
+            background: transparent;
+            border: 1px solid var(--border-medium);
+            color: var(--text-secondary);
+        }
+        .btn-ghost:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+        .btn svg { width: 14px; height: 14px; }
+
+        /* ─── File preview ────────────────────────────── */
+        .file-preview {
+            display: none;
+            margin-top: 1rem;
+            border: 1px solid var(--border-dim);
+            background: var(--bg-secondary);
+            padding: 1rem 1.25rem;
+        }
+        .file-preview.show { display: flex; align-items: center; justify-content: space-between; }
+
+        .file-meta { display: flex; align-items: center; gap: 1rem; }
+        .file-icon {
+            width: 36px; height: 36px;
+            background: var(--bg-hover);
+            border: 1px solid var(--border-subtle);
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+        .file-icon svg { width: 16px; height: 16px; stroke: var(--text-secondary); }
+        .file-name { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.2rem; }
+        .file-stats {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            color: var(--text-dim);
+        }
+
+        /* ─── Action bar ──────────────────────────────── */
+        .action-bar {
+            display: none;
+            margin-top: 1.25rem;
+            gap: 0.75rem;
+            align-items: center;
+        }
+        .action-bar.show { display: flex; }
+
+        /* ─── Loading ─────────────────────────────────── */
+        .loading-section {
+            display: none;
+            margin-top: 1.5rem;
+            padding: 2rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-dim);
+            text-align: center;
+        }
+        .loading-section.show { display: block; }
+
+        .ecg-loader {
+            margin: 0 auto 1.25rem;
+            width: 200px;
+            height: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+        .ecg-loader svg { position: absolute; width: 400px; height: 40px; animation: scan 1.2s linear infinite; }
+        @keyframes scan { from { transform: translateX(0); } to { transform: translateX(-200px); } }
+
+        .loading-text {
+            font-family: var(--mono);
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            animation: fade-loading 1.5s ease-in-out infinite;
+        }
+        @keyframes fade-loading { 0%,100%{opacity:0.4} 50%{opacity:1} }
+        .loading-sub {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            color: var(--text-dim);
+            margin-top: 0.4rem;
+        }
+
+        /* ─── Results ─────────────────────────────────── */
+        .results-section { display: none; margin-top: 1.5rem; }
+        .results-section.show { display: block; }
+
+        /* Verdict Banner */
+        .verdict {
+            display: flex;
+            align-items: stretch;
+            border: 1px solid var(--border-dim);
+            margin-bottom: 1.25rem;
+            overflow: hidden;
+        }
+        .verdict-stripe {
+            width: 4px;
+            flex-shrink: 0;
+        }
+        .verdict.normal .verdict-stripe { background: var(--green); }
+        .verdict.abnormal .verdict-stripe { background: var(--red); }
+
+        .verdict-body {
+            flex: 1;
+            padding: 1.25rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .verdict.normal .verdict-body { background: var(--green-glow); }
+        .verdict.abnormal .verdict-body { background: var(--red-glow); }
+
+        .verdict-left { display: flex; align-items: center; gap: 1rem; }
+        .verdict-indicator {
+            width: 10px; height: 10px; border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .verdict.normal .verdict-indicator { background: var(--green); box-shadow: 0 0 8px var(--green); }
+        .verdict.abnormal .verdict-indicator { background: var(--red); box-shadow: 0 0 8px var(--red); animation: blink 1s ease-in-out infinite; }
+
+        .verdict-label {
+            font-family: var(--mono);
+            font-size: 1.125rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+        }
+        .verdict.normal .verdict-label { color: var(--green); }
+        .verdict.abnormal .verdict-label { color: var(--red); }
+
+        .verdict-sub {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            color: var(--text-dim);
+            margin-top: 0.2rem;
+        }
+
+        .verdict-confidence {
+            text-align: right;
+        }
+        .confidence-value {
+            font-family: var(--mono);
+            font-size: 2rem;
+            font-weight: 600;
+            line-height: 1;
+        }
+        .verdict.normal .confidence-value { color: var(--green); }
+        .verdict.abnormal .confidence-value { color: var(--red); }
+        .confidence-label {
+            font-family: var(--mono);
+            font-size: 0.625rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-top: 0.2rem;
+        }
+
+        /* Charts */
+        .result-chart {
+            width: 100%;
+            border: 1px solid var(--border-dim);
+            display: block;
+            margin-bottom: 1rem;
+            background: #252830;
+        }
+
+        /* Signal stats row */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1px;
+            background: var(--border-dim);
+            border: 1px solid var(--border-dim);
+            margin-top: 1rem;
+        }
+        .stat-box {
+            background: var(--bg-card);
+            padding: 0.875rem 1rem;
+        }
+        .stat-label {
+            font-family: var(--mono);
+            font-size: 0.5625rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--text-dim);
+            margin-bottom: 0.375rem;
+        }
+        .stat-value {
+            font-family: var(--mono);
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .stat-unit {
+            font-size: 0.625rem;
+            color: var(--text-dim);
+            margin-left: 0.2rem;
+        }
+
+        /* ─── Sidebar panels ──────────────────────────── */
+        .info-panel { margin-bottom: 1.25rem; }
+
+        /* Model stats */
+        .model-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.625rem 0;
+            border-bottom: 1px solid var(--border-dim);
+            font-size: 0.8125rem;
+        }
+        .model-row:last-child { border-bottom: none; }
+        .model-key { color: var(--text-secondary); }
+        .model-val {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-primary);
+            text-align: right;
+        }
+        .model-val.good { color: var(--green); }
+
+        /* Action card */
+        .action-card {
+            display: none;
+            padding: 1rem 1.25rem;
+            border: 1px solid var(--border-dim);
+            margin-bottom: 1rem;
+        }
+        .action-card.show { display: block; }
+        .action-card.flag { border-color: var(--red-dim); background: var(--red-glow); }
+        .action-card.clear { border-color: var(--green-dim); background: var(--green-glow); }
+
+        .action-icon {
+            width: 28px; height: 28px;
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 0.75rem;
+        }
+        .action-icon svg { width: 18px; height: 18px; }
+        .action-title {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 0.375rem;
+        }
+        .action-card.flag .action-title { color: var(--red); }
+        .action-card.clear .action-title { color: var(--green); }
+        .action-text {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        /* Timestamp */
+        .timestamp-row {
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+            color: var(--text-dim);
+            padding: 0.75rem 1.25rem;
+            border: 1px solid var(--border-dim);
+            margin-bottom: 1rem;
+            display: none;
+        }
+        .timestamp-row.show { display: flex; justify-content: space-between; }
+
+        /* Disclaimer */
+        .disclaimer {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            color: var(--text-dim);
+            padding: 0.875rem 1.25rem;
+            border: 1px solid var(--border-dim);
+            line-height: 1.6;
+            margin-top: 1rem;
+        }
+
+        /* ─── Transitions ─────────────────────────────── */
+        .fade-in { animation: fade-in 0.35s ease forwards; }
+        @keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+        /* ─── Scrollbar ───────────────────────────────── */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: var(--border-medium); }
+    </style>
+</head>
+<body>
+
+<!-- Animated ECG background line -->
+<div class="bg-ecg">
+    <svg viewBox="0 0 800 60" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <polyline fill="none" stroke="#22c55e" stroke-width="1.5"
+            points="0,30 40,30 50,30 55,10 60,50 65,30 80,30
+                    120,30 130,30 135,10 140,50 145,30 160,30
+                    200,30 210,30 215,10 220,50 225,30 240,30
+                    280,30 290,30 295,10 300,50 305,30 320,30
+                    360,30 370,30 375,10 380,50 385,30 400,30
+                    440,30 450,30 455,10 460,50 465,30 480,30
+                    520,30 530,30 535,10 540,50 545,30 560,30
+                    600,30 610,30 615,10 620,50 625,30 640,30
+                    680,30 690,30 695,10 700,50 705,30 720,30
+                    760,30 770,30 775,10 780,50 785,30 800,30"/>
+    </svg>
+</div>
+
+<div class="shell">
+
+    <!-- ── Sidebar ─────────────────────────────────── -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-pulse">
+                <div class="pulse-icon">
+                    <svg viewBox="0 0 24 24"><polyline points="2,12 6,12 8,4 10,20 12,12 14,16 16,12 22,12"/></svg>
+                </div>
+                <div>
+                    <div class="brand-name">Cardio<span>Scan</span> AI</div>
+                </div>
+            </div>
+            <div class="brand-tag">ECG Heartbeat Classification</div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-group-label">Workspace</div>
+            <a class="nav-item active" href="#">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,12 6,12 8,4 10,20 12,12 14,16 16,12 22,12"/></svg>
+                Signal Analysis
+            </a>
+            <a class="nav-item" href="#">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="0"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                Dashboard
+            </a>
+
+            <div class="nav-group-label">Model</div>
+            <a class="nav-item" href="#">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
+                CNN + LSTM
+            </a>
+            <a class="nav-item" href="#">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
+                PTB Dataset
+            </a>
+
+            <div class="nav-group-label">Info</div>
+            <a class="nav-item" href="#">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                About
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="system-status">
+                <div class="status-dot"></div>
+                Model active · MPS / CUDA
+            </div>
+        </div>
+    </aside>
+
+    <!-- ── Main ────────────────────────────────────── -->
+    <div class="main">
+
+        <!-- Topbar -->
+        <header class="topbar">
+            <div class="breadcrumb">
+                <span>CardioScan</span>
+                <span class="sep">/</span>
+                <span class="current">Signal Analysis</span>
+            </div>
+            <div class="topbar-chips">
+                <div class="chip"><div class="chip-dot" style="background:var(--green)"></div>F1: 99.46%</div>
+                <div class="chip"><div class="chip-dot" style="background:var(--blue)"></div>AUC: 99.99%</div>
+                <div class="chip">CNN + LSTM</div>
+            </div>
+        </header>
+
+        <!-- Content -->
+        <div class="content">
+            <div class="content-grid">
+
+                <!-- Left column -->
+                <div class="left-col">
+
+                    <!-- Upload card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">ECG Signal Input</span>
+                            <span class="card-badge">PTB Format</span>
+                        </div>
+                        <div class="card-body">
+
+                            <!-- Upload zone -->
+                            <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                                <input type="file" id="fileInput" accept=".csv,.txt" style="display:none">
+                                <div class="upload-zone-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <polyline points="16,16 12,12 8,16"/><line x1="12" y1="12" x2="12" y2="21"/>
+                                        <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+                                    </svg>
+                                </div>
+                                <div class="upload-zone-title">Drop your ECG signal file here</div>
+                                <div class="upload-zone-sub">
+                                    Upload a CSV row from the PTB dataset<br>
+                                    187 numeric values · amplitude normalized [0,1]
+                                </div>
+                                <button class="btn btn-ghost" style="pointer-events:none">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                    Choose File
+                                </button>
+                                <div class="upload-zone-formats">Accepted: .csv · .txt</div>
+                            </div>
+
+                            <!-- File preview -->
+                            <div class="file-preview" id="filePreview">
+                                <div class="file-meta">
+                                    <div class="file-icon">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+                                    </div>
+                                    <div>
+                                        <div class="file-name" id="fileName">—</div>
+                                        <div class="file-stats"><span id="fileSize">—</span> · <span id="fileExt">—</span></div>
+                                    </div>
+                                </div>
+                                <button class="btn btn-ghost" style="padding:0.375rem 0.75rem; font-size:0.75rem" onclick="clearFile()">Remove</button>
+                            </div>
+
+                            <!-- Action bar -->
+                            <div class="action-bar" id="actionBar">
+                                <button class="btn btn-primary" id="analyzeBtn" onclick="runAnalysis()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,12 6,12 8,4 10,20 12,12 14,16 16,12 22,12"/></svg>
+                                    Analyse Heartbeat
+                                </button>
+                                <span style="font-family:var(--mono);font-size:0.6875rem;color:var(--text-dim)">CNN+LSTM · threshold 0.5</span>
+                            </div>
+
+                            <!-- Loading -->
+                            <div class="loading-section" id="loadingSection">
+                                <div class="ecg-loader">
+                                    <svg viewBox="0 0 400 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <polyline stroke="#ef4444" stroke-width="2" fill="none"
+                                            points="0,20 40,20 50,20 55,4 60,36 65,20 80,20
+                                                    120,20 130,20 135,4 140,36 145,20 160,20
+                                                    200,20 210,20 215,4 220,36 225,20 240,20
+                                                    280,20 290,20 295,4 300,36 305,20 320,20
+                                                    360,20 370,20 375,4 380,36 385,20 400,20"/>
+                                    </svg>
+                                </div>
+                                <div class="loading-text">Analysing ECG signal...</div>
+                                <div class="loading-sub">CNN feature extraction → LSTM temporal modelling</div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <!-- Results -->
+                    <div class="results-section" id="resultsSection">
+
+                        <!-- Verdict -->
+                        <div class="verdict" id="verdictBanner">
+                            <div class="verdict-stripe"></div>
+                            <div class="verdict-body">
+                                <div class="verdict-left">
+                                    <div class="verdict-indicator" id="verdictDot"></div>
+                                    <div>
+                                        <div class="verdict-label" id="verdictLabel">—</div>
+                                        <div class="verdict-sub" id="verdictSub">—</div>
+                                    </div>
+                                </div>
+                                <div class="verdict-confidence">
+                                    <div class="confidence-value" id="confidenceValue">—%</div>
+                                    <div class="confidence-label">Confidence</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Waveform chart -->
+                        <div class="card" style="margin-bottom:1rem">
+                            <div class="card-header">
+                                <span class="card-title">ECG Waveform</span>
+                                <span class="card-badge" id="waveformBadge">—</span>
+                            </div>
+                            <div style="padding:0.75rem">
+                                <img id="waveformImg" class="result-chart" src="" alt="ECG waveform" style="display:none">
+                            </div>
+                        </div>
+
+                        <!-- Confidence chart -->
+                        <div class="card" style="margin-bottom:1rem">
+                            <div class="card-header">
+                                <span class="card-title">Probability Distribution</span>
+                            </div>
+                            <div style="padding:0.75rem">
+                                <img id="confidenceImg" class="result-chart" src="" alt="Confidence chart" style="display:none">
+                            </div>
+                        </div>
+
+                        <!-- Signal stats -->
+                        <div class="stats-grid">
+                            <div class="stat-box">
+                                <div class="stat-label">R-Peak Amplitude</div>
+                                <div class="stat-value" id="statRPeak">—</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-label">R-Peak Position</div>
+                                <div class="stat-value" id="statRIdx">— <span class="stat-unit">ts</span></div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-label">Mean Amplitude</div>
+                                <div class="stat-value" id="statMean">—</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-label">Std Deviation</div>
+                                <div class="stat-value" id="statStd">—</div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <!-- Right column -->
+                <div class="right-col">
+
+                    <!-- Timestamp -->
+                    <div class="timestamp-row" id="timestampRow">
+                        <span>Last analysis</span>
+                        <span id="tsValue">—</span>
+                    </div>
+
+                    <!-- Action card -->
+                    <div class="action-card" id="actionCard">
+                        <div class="action-icon">
+                            <svg id="actionIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"></svg>
+                        </div>
+                        <div class="action-title" id="actionTitle">—</div>
+                        <div class="action-text" id="actionText">—</div>
+                    </div>
+
+                    <!-- Model Info -->
+                    <div class="card info-panel">
+                        <div class="card-header">
+                            <span class="card-title">Model Performance</span>
+                        </div>
+                        <div class="card-body" style="padding:1rem 1.25rem">
+                            <div class="model-row">
+                                <span class="model-key">Architecture</span>
+                                <span class="model-val">CNN + LSTM</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">F1 Score</span>
+                                <span class="model-val good">99.46%</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">ROC-AUC</span>
+                                <span class="model-val good">99.99%</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">Precision</span>
+                                <span class="model-val good">99.55%</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">Recall</span>
+                                <span class="model-val good">99.37%</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">Framework</span>
+                                <span class="model-val">PyTorch</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">Dataset</span>
+                                <span class="model-val">PTB Diagnostic ECG</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">Signal length</span>
+                                <span class="model-val">187 time steps</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">Classes</span>
+                                <span class="model-val">Normal / Abnormal</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- How it works -->
+                    <div class="card info-panel">
+                        <div class="card-header">
+                            <span class="card-title">How It Works</span>
+                        </div>
+                        <div class="card-body" style="padding:1rem 1.25rem">
+                            <div class="model-row">
+                                <span class="model-key">Step 1</span>
+                                <span class="model-val" style="font-size:0.6875rem">Parse 187 time steps</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">Step 2</span>
+                                <span class="model-val" style="font-size:0.6875rem">Conv1D local features</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">Step 3</span>
+                                <span class="model-val" style="font-size:0.6875rem">LSTM temporal modelling</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">Step 4</span>
+                                <span class="model-val" style="font-size:0.6875rem">Sigmoid → probability</span>
+                            </div>
+                            <div class="model-row">
+                                <span class="model-key">Step 5</span>
+                                <span class="model-val" style="font-size:0.6875rem">Threshold at 0.5</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Disclaimer -->
+                    <div class="disclaimer">
+                        ⚠ FOR RESEARCH USE ONLY.<br>
+                        This tool is not a certified medical device and must not be used for clinical diagnosis. Always consult a qualified cardiologist for medical evaluation.
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const uploadZone    = document.getElementById('uploadZone');
+    const fileInput     = document.getElementById('fileInput');
+    const filePreview   = document.getElementById('filePreview');
+    const actionBar     = document.getElementById('actionBar');
+    const loadingSection= document.getElementById('loadingSection');
+    const resultsSection= document.getElementById('resultsSection');
+    let selectedFile    = null;
+
+    // ── Drag & Drop ───────────────────────────────────────────
+    uploadZone.addEventListener('dragover', e => {
+        e.preventDefault();
+        uploadZone.classList.add('drag-over');
+    });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+    uploadZone.addEventListener('drop', e => {
+        e.preventDefault();
+        uploadZone.classList.remove('drag-over');
+        if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', e => {
+        if (e.target.files.length > 0) handleFile(e.target.files[0]);
+    });
+
+    // ── Handle file selection ─────────────────────────────────
+    function handleFile(file) {
+        selectedFile = file;
+        document.getElementById('fileName').textContent = file.name;
+        document.getElementById('fileSize').textContent = (file.size / 1024).toFixed(1) + ' KB';
+        document.getElementById('fileExt').textContent  = file.name.split('.').pop().toUpperCase();
+        filePreview.classList.add('show');
+        actionBar.classList.add('show');
+        resultsSection.classList.remove('show');
+    }
+
+    function clearFile() {
+        selectedFile = null;
+        fileInput.value = '';
+        filePreview.classList.remove('show');
+        actionBar.classList.remove('show');
+        resultsSection.classList.remove('show');
+        document.getElementById('timestampRow').classList.remove('show');
+        document.getElementById('actionCard').classList.remove('show');
+    }
+
+    // ── Run analysis ──────────────────────────────────────────
+    function runAnalysis() {
+        if (!selectedFile) return;
+
+        actionBar.classList.remove('show');
+        resultsSection.classList.remove('show');
+        loadingSection.classList.add('show');
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        fetch('/predict', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            loadingSection.classList.remove('show');
+
+            if (data.error) {
+                alert('Error: ' + data.error);
+                actionBar.classList.add('show');
+                return;
+            }
+
+            renderResults(data);
+        })
+        .catch(err => {
+            console.error(err);
+            loadingSection.classList.remove('show');
+            actionBar.classList.add('show');
+            alert('Analysis failed. Please check your file format and try again.');
+        });
+    }
+
+    // ── Render results ────────────────────────────────────────
+    function renderResults(d) {
+        const isAbnormal = d.prediction === 1;
+
+        // Timestamp
+        const ts = document.getElementById('timestampRow');
+        document.getElementById('tsValue').textContent =
+            new Date().toLocaleTimeString('en-GB', { hour12: false });
+        ts.classList.add('show');
+
+        // Verdict
+        const banner = document.getElementById('verdictBanner');
+        banner.className = 'verdict ' + (isAbnormal ? 'abnormal' : 'normal');
+        document.getElementById('verdictLabel').textContent = d.label + ' HEARTBEAT';
+        document.getElementById('verdictSub').textContent   =
+            isAbnormal
+            ? 'Cardiac abnormality detected — review recommended'
+            : 'Heartbeat pattern within normal parameters';
+        document.getElementById('confidenceValue').textContent = d.confidence + '%';
+
+        // Waveform badge
+        document.getElementById('waveformBadge').textContent =
+            `P(Abnormal): ${d.prob_abnormal}%`;
+
+        // Waveform chart
+        const wvImg = document.getElementById('waveformImg');
+        wvImg.src = 'data:image/png;base64,' + d.waveform_image;
+        wvImg.style.display = 'block';
+
+        // Confidence chart
+        const cfImg = document.getElementById('confidenceImg');
+        cfImg.src = 'data:image/png;base64,' + d.confidence_image;
+        cfImg.style.display = 'block';
+
+        // Signal stats
+        document.getElementById('statRPeak').textContent = d.r_peak;
+        document.getElementById('statRIdx').innerHTML    =
+            d.r_peak_idx + ' <span class="stat-unit">ts</span>';
+        document.getElementById('statMean').textContent  = d.mean_amplitude;
+        document.getElementById('statStd').textContent   = d.std_amplitude;
+
+        // Action card
+        const card = document.getElementById('actionCard');
+        const icon = document.getElementById('actionIcon');
+        card.className = 'action-card show ' + (isAbnormal ? 'flag' : 'clear');
+
+        if (isAbnormal) {
+            document.getElementById('actionTitle').textContent = 'Clinical Action Required';
+            document.getElementById('actionText').textContent  = d.action;
+            icon.innerHTML = '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>';
+        } else {
+            document.getElementById('actionTitle').textContent = 'No Action Required';
+            document.getElementById('actionText').textContent  = d.action;
+            icon.innerHTML = '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/>';
+        }
+
+        // Show results
+        resultsSection.classList.add('show');
+        resultsSection.classList.add('fade-in');
+        actionBar.classList.add('show');
+        document.getElementById('analyzeBtn').textContent = 'Re-analyse';
+    }
+</script>
+</body>
+</html>
